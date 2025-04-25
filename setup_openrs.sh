@@ -1,6 +1,28 @@
 #!/bin/bash
 
-echo "🌟 Starting Open-RS environment setup..."
+# Step 0: Configure Git identity
+# Try loading from .env (user-provided)
+if [ -f .env ]; then
+    export $(grep -E '^GIT_(NAME|EMAIL)=' .env | xargs)
+fi
+
+# Warn if identity not set
+if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+    echo "⚠️ Please provide your Git identity in a .env file:"
+    echo "    GIT_NAME=your-name-here"
+    echo "    GIT_EMAIL=your-email@example.com"
+    exit 1
+fi
+
+# Only set config if not already set
+if ! git config --global user.email &> /dev/null; then
+    echo "🖋️  Setting Git identity..."
+    git config --global user.name "$GIT_NAME"
+    git config --global user.email "$GIT_EMAIL"
+else
+    echo "✅ Git identity already configured"
+fi
+
 
 # Step 1: Add uv to PATH
 export PATH="$HOME/.local/bin:$PATH"
