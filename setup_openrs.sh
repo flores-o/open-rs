@@ -1,12 +1,12 @@
 #!/bin/bash
 
+set -e  # Stop the script if any command fails
+
 # Step 0: Configure Git identity
-# Try loading from .env (user-provided)
 if [ -f .env ]; then
     export $(grep -E '^GIT_(NAME|EMAIL)=' .env | xargs)
 fi
 
-# Warn if identity not set
 if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
     echo "⚠️ Please provide your Git identity in a .env file:"
     echo "    GIT_NAME=your-name-here"
@@ -14,15 +14,13 @@ if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
     exit 1
 fi
 
-# Only set config if not already set
 if ! git config --global user.email &> /dev/null; then
-    echo "🖋️  Setting Git identity..."
+    echo "🖋️ Setting Git identity..."
     git config --global user.name "$GIT_NAME"
     git config --global user.email "$GIT_EMAIL"
 else
     echo "✅ Git identity already configured"
 fi
-
 
 # Step 1: Add uv to PATH
 export PATH="$HOME/.local/bin:$PATH"
@@ -31,12 +29,19 @@ export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv &> /dev/null; then
     echo "🔧 Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    source ~/.local/bin/env
 else
     echo "✅ uv already installed"
 fi
 
-# Step 3: Set up the virtual environment if it doesn't exist
+# Step 2.5: Ensure Python 3.11 is installed
+if ! command -v python3.11 &> /dev/null; then
+    echo "❌ Python 3.11 is not installed!"
+    exit 1
+else
+    echo "✅ Python 3.11 found!"
+fi
+
+# Step 3: Set up virtual environment if it doesn't exist
 if [ ! -d "openr1" ]; then
     echo "📦 Creating virtual environment..."
     uv venv openr1 --python 3.11
@@ -49,19 +54,25 @@ source openr1/bin/activate
 uv pip install --upgrade pip
 export UV_LINK_MODE=copy
 
-# Step 6: Install core dependencies (skip if already installed)
-if ! pip show vllm &> /dev/null; then
-    echo "🧠 Installing vLLM, setuptools, and flash-attn..."
-    uv pip install vllm==0.7.2
-    uv pip install setuptools
-    uv pip install flash-attn --no-build-isolation
-else
-    echo "✅ Core dependencies already installed"
-fi
+# Step 6: Install pinned versions for compatibility
+
+echo "🧹 Cleaning any old torch installs..."
+pip uninstall -y torch torchvision torchaudio vllm flash-attn || true
+
+echo "📥 Installing correct torch, torchvision, and torchaudio for CUDA 12.1..."
+pip install torch==2.5.1+cu121 torchvision==0.16.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+echo "📥 Installing vLLM and FlashAttention..."
+uv pip install vllm==0.7.2
+uv pip install flash-attn --no-build-isolation
+uv pip install setuptools
 
 # Step 7: Install dev dependencies (editable mode)
 echo "🔧 Installing development dependencies..."
-GIT_LFS_SKIP_SMUDGE=1 uv pip install -e ".[dev]"
+if ! uv pip install -e ".[dev]"; then
+    echo "⚠️ uv pip install failed, falling back to pip..."
+    pip install -e ".[dev]"
+fi
 
 # Step 8: Ensure Git LFS is installed
 if ! command -v git-lfs &> /dev/null; then
@@ -71,10 +82,9 @@ else
     echo "✅ Git LFS already installed"
 fi
 
-# Step 9: Authenticate with Hugging Face & Weights & Biases
+# Step 9: Authenticate Hugging Face & Weights & Biases
 if [ -f .env ]; then
     echo "🔐 Loading credentials from .env..."
-
     HF_TOKEN=$(grep -E '^HUGGINGFACE_TOKEN=' .env | cut -d '=' -f2-)
     WANDB_API_KEY=$(grep -E '^WANDB_API_KEY=' .env | cut -d '=' -f2-)
 
@@ -92,5 +102,7 @@ if [ -f .env ]; then
 else
     echo "⚠️ No .env file found — please copy .env.template and fill it in"
 fi
+
+
 
 echo "🎉 All done! Environment is ready to reign. 👑"

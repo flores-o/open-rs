@@ -1,5 +1,6 @@
 compute_environment: LOCAL_MACHINE
 debug: false
+num_processes: 2 # Added this 
 deepspeed_config:
   deepspeed_multinode_launcher: standard
   offload_optimizer_device: none
