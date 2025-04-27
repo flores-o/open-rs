@@ -40,6 +40,39 @@ from open_r1.utils import get_tokenizer
 from open_r1.utils.callbacks import get_callbacks
 from open_r1.utils.wandb_logging import init_wandb_training
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
+# ────────── Dynamic-filter helper ──────────
+from collections import defaultdict
+from transformers import TrainerCallback, TrainerControl, TrainerState
+
+class DynamicFilterCallback(TrainerCallback):
+    """
+    Counts how often each training example receives a zero reward
+    (after Clip-Higher masking) and lets the trainer know so we can
+    drop ‘hopeless’ ones after N tries.
+    """
+
+    def __init__(self, max_zero=3):
+        super().__init__()
+        self.max_zero = max_zero
+        self._zero_count = defaultdict(int)
+
+    # This hook name is defined in TRL’s GRPOTrainer
+    def on_post_reward(
+        self,
+        args,
+        state: TrainerState,
+        control: TrainerControl,
+        rewards=None,
+        batch_indices=None,
+        **kwargs,
+    ):
+        for idx, rw in zip(batch_indices, rewards):
+            if rw == 0.0:
+                self._zero_count[idx] += 1
+
+    # small helper we will reference when building the filtered dataset
+    def keep_example(self, example, idx):
+        return self._zero_count[idx] < self.max_zero
 
 
 logger = logging.getLogger(__name__)
@@ -108,6 +141,10 @@ class GRPOScriptArguments(ScriptArguments):
             "choices": ["python", "javascript", "r", "java", "bash"],
         },
     )
+    # ---------- Dapo flags ----------
+    clip_higher: bool = field(default=False)
+    dynamic_filter: bool = field(default=False)
+
 
 
 def main(script_args, training_args, model_args):
@@ -156,9 +193,24 @@ def main(script_args, training_args, model_args):
     ################
     tokenizer = get_tokenizer(model_args, training_args)
 
+    # -------- Clip-Higher wrapper ----------
+    def _mask_if_truncated(base_fn):
+        if not script_args.clip_higher:
+            return base_fn
+
+        def wrapped(completions, **kw):
+            r = base_fn(completions, **kw)
+            ceiling = training_args.max_completion_length
+            for i, c in enumerate(completions):
+                if len(c[0]["content"]) >= ceiling:
+                    r[i] = 0.0
+            return r
+        return wrapped
+
+
     # Get reward functions
     REWARD_FUNCS_REGISTRY = {
-        "accuracy": accuracy_reward,
+        "accuracy": _mask_if_truncated(accuracy_reward),
         "format": format_reward,
         "reasoning_steps": reasoning_steps_reward,
         "cosine": get_cosine_scaled_reward(
@@ -221,6 +273,21 @@ def main(script_args, training_args, model_args):
         callbacks=get_callbacks(training_args, model_args),
         processing_class=tokenizer,
     )
+
+    trainer.loss_reduction = "token_average"   # <<< NEW LINE
+
+    # -------- Dynamic filter ----------
+    if script_args.dynamic_filter:
+        dyn_cb = DynamicFilterCallback(max_zero=3)   # or any threshold you like
+        trainer.add_callback(dyn_cb)
+
+        # rebuild the training split so that the DataLoader skips
+        # examples that have already hit the zero-reward cap
+        dataset[script_args.dataset_train_split] = dataset[
+            script_args.dataset_train_split
+        ].filter(dyn_cb.keep_example, with_indices=True)
+
+
 
     ###############
     # Training loop
