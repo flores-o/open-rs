@@ -85,9 +85,9 @@ uv pip install \
 
 
 echo "📥 Installing vLLM and FlashAttention..."
+uv pip install --upgrade pip setuptools wheel ninja packaging
 uv pip install vllm==0.7.2
 uv pip install flash-attn --no-build-isolation
-uv pip install setuptools
 
 # Step 7: Install dev dependencies (editable mode)
 echo "🔧 Installing development dependencies..."
