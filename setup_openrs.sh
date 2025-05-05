@@ -33,6 +33,21 @@ else
     echo "✅ uv already installed"
 fi
 
+# Step 2.4: Install Python 3.11 if not already installed
+if ! command -v python3.11 &> /dev/null; then
+    echo "📦 Installing Python 3.11..."
+
+    # Add deadsnakes PPA for Python 3.11 (Ubuntu/Debian)
+    apt-get update
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update
+    apt-get install -y python3.11 python3.11-venv python3.11-dev
+
+    echo "✅ Python 3.11 installed"
+fi
+
+
 # Step 2.5: Ensure Python 3.11 is installed
 if ! command -v python3.11 &> /dev/null; then
     echo "❌ Python 3.11 is not installed!"
@@ -59,8 +74,15 @@ export UV_LINK_MODE=copy
 echo "🧹 Cleaning any old torch installs..."
 pip uninstall -y torch torchvision torchaudio vllm flash-attn || true
 
-echo "📥 Installing correct torch, torchvision, and torchaudio for CUDA 12.1..."
-pip install torch==2.5.1+cu121 torchvision==0.16.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+CUDA_INDEX=https://download.pytorch.org/whl/cu121
+
+uv pip install \
+  torch==2.5.1+cu121 \
+  torchvision==0.20.1+cu121 \
+  torchaudio==2.5.1+cu121 \
+  --extra-index-url "$CUDA_INDEX"
+
+
 
 echo "📥 Installing vLLM and FlashAttention..."
 uv pip install vllm==0.7.2
@@ -106,3 +128,5 @@ fi
 
 
 echo "🎉 All done! Environment is ready to reign. 👑"
+
+echo "✨  Run: source openr1/bin/activate  (to enter the kingdom)"
