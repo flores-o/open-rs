@@ -1,22 +1,20 @@
 compute_environment: LOCAL_MACHINE
-debug: false
-num_processes: 2 # Added this 
+distributed_type: DEEPSPEED
 deepspeed_config:
   deepspeed_multinode_launcher: standard
   offload_optimizer_device: none
   offload_param_device: none
   zero3_init_flag: false
+  zero3_save_16bit_model: false
   zero_stage: 2
-distributed_type: DEEPSPEED
-downcast_bf16: 'no'
+# —— basic launcher plumbing ——
+num_processes: 1
+num_machines: 1
 machine_rank: 0
 main_training_function: main
-mixed_precision: bf16
-num_machines: 1
-num_processes: 8
+debug: false
 rdzv_backend: static
 same_network: true
-tpu_env: []
-tpu_use_cluster: false
-tpu_use_sudo: false
 use_cpu: false
+downcast_bf16: "no"
+mixed_precision: bf16
