@@ -39,10 +39,40 @@ from open_r1.rewards import (
 from open_r1.utils import get_tokenizer
 from open_r1.utils.callbacks import get_callbacks
 from open_r1.utils.wandb_logging import init_wandb_training
+from open_r1.callbacks.push_each_checkpoint import PushEachCheckpointCallback
 from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 # ────────── Dynamic-filter helper ──────────
 from collections import defaultdict
 from transformers import TrainerCallback, TrainerControl, TrainerState
+from huggingface_hub import HfFolder, HfApi
+from pathlib import Path
+import re
+
+# --- replace the existing derive_base_repo ----------------------------------
+def derive_base_repo(model_args):
+    """
+    Return a suitable repo prefix for the current token.
+
+    • If `model_name_or_path` already looks like   user/repo   → keep as-is
+    • Otherwise prepend <token_owner>/.
+    """
+    raw = str(model_args.model_name_or_path).rstrip("/")
+
+    if "/" in raw and not raw.startswith("."):
+        return raw                                  # already a Hub path
+
+    # discover the username tied to the token
+    try:
+        owner = HfApi().whoami()["name"]            # e.g. "oanaflores"
+    except Exception:
+        owner = os.getenv("HF_USERNAME", "your-name")
+
+    from pathlib import Path, PurePosixPath
+    import re
+    clean = re.sub(r"[^A-Za-z0-9._-]", "-", Path(raw).name)  # slug-ify
+    return f"{owner}/{clean}"
+# ---------------------------------------------------------------------------
+
 
 class DynamicFilterCallback(TrainerCallback):
     """
@@ -247,6 +277,16 @@ def main(script_args, training_args, model_args):
         if "messages" in dataset[split].column_names:
             dataset[split] = dataset[split].remove_columns("messages")
 
+        # ------------------------------------------------------------------
+    # 🐢 TEST MODE – keep just a handful of samples so a step is instant
+    # ------------------------------------------------------------------
+    TEST_EXAMPLES = 8                    # adjust 1–8 as you like
+    dataset[script_args.dataset_train_split] = dataset[
+        script_args.dataset_train_split
+    ].select(range(TEST_EXAMPLES))
+    # ------------------------------------------------------------------
+
+
     logger.info("*** Initializing model kwargs ***")
     torch_dtype = (
         model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
@@ -274,7 +314,20 @@ def main(script_args, training_args, model_args):
         processing_class=tokenizer,
     )
 
-    trainer.loss_reduction = "token_average"   # <<< NEW LINE
+    trainer.loss_reduction = "token_average"  
+
+    base_repo = derive_base_repo(model_args)
+
+
+    # 2️⃣  Push-every-checkpoint callback
+    push_cb = PushEachCheckpointCallback(
+        base_repo_name=None,                 # leave None → will respect CKPT_REPO
+        hf_token=HfFolder.get_token(),
+        private=False,
+    )
+    trainer.add_callback(push_cb)
+
+
 
     # -------- Dynamic filter ----------
     if script_args.dynamic_filter:
