@@ -277,16 +277,6 @@ def main(script_args, training_args, model_args):
         if "messages" in dataset[split].column_names:
             dataset[split] = dataset[split].remove_columns("messages")
 
-        # ------------------------------------------------------------------
-    # 🐢 TEST MODE – keep just a handful of samples so a step is instant
-    # ------------------------------------------------------------------
-    TEST_EXAMPLES = 8                    # adjust 1–8 as you like
-    dataset[script_args.dataset_train_split] = dataset[
-        script_args.dataset_train_split
-    ].select(range(TEST_EXAMPLES))
-    # ------------------------------------------------------------------
-
-
     logger.info("*** Initializing model kwargs ***")
     torch_dtype = (
         model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
