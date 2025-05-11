@@ -277,14 +277,6 @@ def main(script_args, training_args, model_args):
         if "messages" in dataset[split].column_names:
             dataset[split] = dataset[split].remove_columns("messages")
 
-        # ------------------------------------------------------------------
-    # 🐢 TEST MODE – keep just a handful of samples so a step is instant
-    # ------------------------------------------------------------------
-    TEST_EXAMPLES = 8                    # adjust 1–8 as you like
-    dataset[script_args.dataset_train_split] = dataset[
-        script_args.dataset_train_split
-    ].select(range(TEST_EXAMPLES))
-    # ------------------------------------------------------------------
 
 
     logger.info("*** Initializing model kwargs ***")
@@ -296,6 +288,7 @@ def main(script_args, training_args, model_args):
         trust_remote_code=model_args.trust_remote_code,
         attn_implementation=model_args.attn_implementation,
         torch_dtype=torch_dtype,
+        device_map={"": torch.cuda.current_device()},
         use_cache=False if training_args.gradient_checkpointing else True,
     )
     training_args.model_init_kwargs = model_kwargs
