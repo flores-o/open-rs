@@ -48,6 +48,8 @@ from huggingface_hub import HfFolder, HfApi
 from pathlib import Path
 import re
 
+
+import numpy as np, torch; torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
 # --- replace the existing derive_base_repo ----------------------------------
 def derive_base_repo(model_args):
     """
