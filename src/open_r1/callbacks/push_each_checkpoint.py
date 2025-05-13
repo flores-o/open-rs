@@ -44,6 +44,7 @@ class PushEachCheckpointCallback(TrainerCallback):
     # Hooks                                                                 #
     # --------------------------------------------------------------------- #
     def on_save(self, args, state, control, **kwargs):
+        print(f"[push-cb] entered on_save at step {state.global_step}")
         ckpt_dir = Path(
             kwargs.get("checkpoint_dir")        # transformers ≥ 4.49
             or kwargs.get("checkpoint")         # transformers 4.42-4.48
@@ -62,12 +63,16 @@ class PushEachCheckpointCallback(TrainerCallback):
         print(f"[push-cb] uploading {ckpt_dir}  →  {repo_name}")
 
         self.api.create_repo(repo_name, exist_ok=True, private=self.private)
-        upload_folder(
-            repo_id=repo_name,
-            folder_path=str(ckpt_dir),
-            commit_message=f"checkpoint {state.global_step}",
-            token=self.hf_token,
-        )
+
+        try:
+            upload_folder(
+                repo_id=repo_name,
+                folder_path=str(ckpt_dir),
+                commit_message=f"checkpoint {state.global_step}",
+                token=self.hf_token,
+            )
+        except Exception as e:
+            print("[push-cb] upload failed:", e)
 
         # ------------------------------------------------------------------ #
         # 2.  Optionally prune older local checkpoints                       #

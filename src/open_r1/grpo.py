@@ -306,6 +306,23 @@ def main(script_args, training_args, model_args):
         processing_class=tokenizer,
     )
 
+    # ------------------------------------------------------------------
+    #  Tell Transformers to skip its own optimizer / scheduler reload
+    #  when we are running under DeepSpeed.  DeepSpeed has already done
+    #  that job while reading the ZeRO checkpoint.
+    # ------------------------------------------------------------------
+    from transformers.trainer import Trainer
+
+    _original_load_opt_sched = Trainer._load_optimizer_and_scheduler
+
+    def _skip_load_opt_sched(self, *args, **kwargs):
+        if self.deepspeed:                 # ← Active when launched with `accelerate --deepspeed`
+            return                         # Skip the redundant reload
+        return _original_load_opt_sched(self, *args, **kwargs)
+
+    Trainer._load_optimizer_and_scheduler = _skip_load_opt_sched
+    # ------------------------------------------------------------------
+    # ─────────────────────────────────────────────────────────────────────────────
     trainer.loss_reduction = "token_average"  
 
     base_repo = derive_base_repo(model_args)
