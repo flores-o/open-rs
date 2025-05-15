@@ -1,5 +1,5 @@
 # Model arguments
-model_name_or_path: Qwen/Qwen3-1.7B
+model_name_or_path: oanaflores/Qwen3-1.7B-completion-len-4k-step50
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
@@ -11,16 +11,24 @@ system_prompt: "A conversation between User and Assistant. The user asks a quest
 # GRPO trainer config
 bf16: true
 use_vllm: true
-vllm_device: "cuda:1"
+vllm_device: "cuda:0"
 vllm_enforce_eager: true
-vllm_gpu_memory_utilization: 0.9
-vllm_max_model_len: 4096 # server-side limit
+vllm_gpu_memory_utilization: 0.4
+vllm_max_model_len: 8192       # keep full context
+vllm_tokenizer_mode: "left" 
 do_eval: false
-gradient_accumulation_steps: 4
-gradient_checkpointing: true
-gradient_checkpointing_kwargs:
-  use_reentrant: false
-hub_model_id: Qwen3-1.7B
+# Add this explicit tokenizer configuration
+tokenizer_padding_side: "left"
+padding_side: "left"
+
+# Training on 2 GPUs
+cuda_visible_devices: "1,2" # added after the run started https://wandb.ai/oana-florescu-interp/huggingface/runs/9rkrxlpc
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 24
+
+
+hub_model_id: Qwen3-1.7B-completion-len-4k-step50
 hub_strategy: every_save
 learning_rate: 1.0e-06
 log_completions: false
@@ -32,21 +40,21 @@ lr_scheduler_type: cosine_with_min_lr
 lr_scheduler_kwargs:
   min_lr_rate: 0.1
 max_prompt_length: 512
-max_completion_length: 4096 # trainer trims or pads completions
+max_completion_length: 8192 # trainer trims or pads completions
 max_steps: 500
-num_generations: 6 # test
+num_generations: 2 # test
 num_train_epochs: 1
-output_dir: data/Qwen3-1.7B
+output_dir: data/Qwen3-1.7B-completion-len-8k
 overwrite_output_dir: true
-per_device_eval_batch_size: 6 # go back to 6 test only
-per_device_train_batch_size: 6 # go back to 6 # test only
 push_to_hub: true
 report_to: wandb
 # -----------------------------------------------------------
-# 4-a.  Dapo = “pure accuracy” (+Clip-Higher)
+# 4-a.  Dapo = "pure accuracy" (+Clip-Higher)
 # -----------------------------------------------------------
 reward_funcs: [accuracy]      # single scalar reward
 reward_weights: [1.0]
+
+
 
 # 4-b.  expose the switches used in code –
 clip_higher: true             # zero-out reward if we hit the length ceiling

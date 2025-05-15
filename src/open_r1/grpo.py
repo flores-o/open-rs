@@ -44,9 +44,14 @@ from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_c
 # ────────── Dynamic-filter helper ──────────
 from collections import defaultdict
 from transformers import TrainerCallback, TrainerControl, TrainerState
+from transformers.models.qwen3.modeling_qwen3 import Qwen3Model
 from huggingface_hub import HfFolder, HfApi
 from pathlib import Path
 import re
+import types
+
+
+
 
 
 import numpy as np, torch; torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
@@ -80,7 +85,7 @@ class DynamicFilterCallback(TrainerCallback):
     """
     Counts how often each training example receives a zero reward
     (after Clip-Higher masking) and lets the trainer know so we can
-    drop ‘hopeless’ ones after N tries.
+    drop 'hopeless' ones after N tries.
     """
 
     def __init__(self, max_zero=3):
@@ -88,7 +93,7 @@ class DynamicFilterCallback(TrainerCallback):
         self.max_zero = max_zero
         self._zero_count = defaultdict(int)
 
-    # This hook name is defined in TRL’s GRPOTrainer
+    # This hook name is defined in TRL's GRPOTrainer
     def on_post_reward(
         self,
         args,
@@ -225,6 +230,12 @@ def main(script_args, training_args, model_args):
     ################
     tokenizer = get_tokenizer(model_args, training_args)
 
+    # 🩹 Qwen-3 + FlashAttention needs LEFT padding ────────────────
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:          # keep pad-id valid
+        tokenizer.pad_token = tokenizer.eos_token
+    # ──────────────────────────────────────────────────────────────
+
     # -------- Clip-Higher wrapper ----------
     def _mask_if_truncated(base_fn):
         if not script_args.clip_higher:
@@ -292,6 +303,73 @@ def main(script_args, training_args, model_args):
     )
     training_args.model_init_kwargs = model_kwargs
 
+
+    # Get a reference to the original method for learning its implementation
+    original_update_causal_mask = Qwen3Model._update_causal_mask
+
+    def patched_update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        past_key_values_length: int,
+        seq_length: int,
+        dtype: torch.dtype = None,
+        *args,  # Accept any additional positional arguments
+        **kwargs  # Accept any additional keyword arguments
+    ):
+        # Force the model to use left padding regardless of its setting
+        self.padding_side = "left"
+        if hasattr(self, "config"):
+            self.config.padding_side = "left"
+        
+        # Handle the case where attention_mask is None (happens during initialization)
+        if attention_mask is None:
+            # Create a default batch size of 1 for initialization
+            batch_size = 1
+            device = next(self.parameters()).device if hasattr(self, "parameters") else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            batch_size = attention_mask.shape[0]
+            device = attention_mask.device
+        
+        # Get the correct dtype
+        mask_dtype = dtype or (attention_mask.dtype if attention_mask is not None else torch.float32)
+        
+        # Pure tensor operations for CUDA graph capture compatibility
+        if isinstance(seq_length, torch.Tensor):
+            # Use tensor operations instead of .item()
+            seq_length_value = seq_length.shape[-1] if seq_length.dim() > 0 else seq_length
+        else:
+            seq_length_value = seq_length
+        
+        # Handle past key values length without .item()
+        past_len = 0
+        if isinstance(past_key_values_length, torch.Tensor):
+            past_len = past_key_values_length.shape[0] if past_key_values_length.dim() > 0 else past_key_values_length
+        else:
+            past_len = past_key_values_length
+        
+        # Create causal mask with proper tensor construction
+        ones_tensor = torch.ones(seq_length_value, seq_length_value, device=device, dtype=mask_dtype)
+        causal_mask = torch.tril(ones_tensor).unsqueeze(0).unsqueeze(1)
+        
+        # Always create the full causal mask with past values (if any)
+        if past_len > 0:
+            past_mask = torch.ones(1, 1, seq_length_value, past_len, device=device, dtype=mask_dtype)
+            causal_mask = torch.cat([past_mask, causal_mask], dim=-1)
+        
+        # Expand for batch dimension
+        if batch_size > 1:
+            final_seq_len = seq_length_value + past_len
+            causal_mask = causal_mask.expand(batch_size, 1, seq_length_value, final_seq_len)
+        
+        return causal_mask
+
+    # Apply the complete replacement - FIX: This was incorrectly indented inside the function
+    Qwen3Model._update_causal_mask = patched_update_causal_mask
+
+    logger.warning("Completely replaced Qwen3Model._update_causal_mask to force left padding")
+
+    logger.warning("Patched Qwen3Model._update_causal_mask to force left padding")
+
     #############################
     # Initialize the GRPO trainer
     #############################
@@ -306,7 +384,74 @@ def main(script_args, training_args, model_args):
         processing_class=tokenizer,
     )
 
+
     trainer.loss_reduction = "token_average"  
+
+    # === Apply comprehensive Qwen3 padding fixes for distributed training ===
+    trainer.loss_reduction = "token_average"
+
+    # Force padding_side="left" in tokenizer before any processing
+    tokenizer.padding_side = "left"
+    if hasattr(tokenizer, "model_input_names"):
+        for key in tokenizer.model_input_names:
+            if hasattr(tokenizer, f"{key}_side"):
+                setattr(tokenizer, f"{key}_side", "left")
+
+    # 1. Fix all model components
+    if hasattr(trainer.model, "config"):
+        trainer.model.config.padding_side = "left"
+    trainer.model.padding_side = "left"
+
+    # Also fix any nested model objects
+    if hasattr(trainer.model, "model"):
+        trainer.model.model.padding_side = "left"
+        if hasattr(trainer.model.model, "config"):
+            trainer.model.model.config.padding_side = "left"
+
+    # Fix trainer's tokenizer
+    trainer.tokenizer.padding_side = "left"
+
+    # Fix VLLM pipeline
+    if hasattr(trainer, "vllm_pipeline") and hasattr(trainer.vllm_pipeline, "tokenizer"):
+        trainer.vllm_pipeline.tokenizer.padding_side = "left"
+
+    # Fix generation config
+    if hasattr(trainer.model, "generation_config"):
+        trainer.model.generation_config.padding_side = "left"
+
+    # 2. Patch the generation method
+    original_generate = trainer._generate_and_score_completions
+    def wrapped_generate(self, inputs):
+        # Force all tokenizers to left padding before generating
+        for obj in [self, self.model, getattr(self, "vllm_pipeline", None)]:
+            if hasattr(obj, "tokenizer") and obj.tokenizer is not None:
+                obj.tokenizer.padding_side = "left"
+        
+        # Ensure model's internal padding is left too
+        self.model.padding_side = "left"
+        if hasattr(self.model, "config"):
+            self.model.config.padding_side = "left"
+        
+        # Call the original method
+        return original_generate(inputs)
+    trainer._generate_and_score_completions = types.MethodType(wrapped_generate, trainer)
+
+    # 3. Patch the prepare inputs method
+    original_prepare_inputs = trainer._prepare_inputs
+    def _prepare_inputs_with_padding_check(self, inputs):
+        # Ensure tokenizer is using left padding
+        if hasattr(self, "tokenizer"):
+            self.tokenizer.padding_side = "left"
+        
+        # Ensure model's padding is left too (critical for Flash Attention)
+        self.model.padding_side = "left"
+        if hasattr(self.model, "config"):
+            self.model.config.padding_side = "left"
+        
+        return original_prepare_inputs(inputs)
+    trainer._prepare_inputs = types.MethodType(_prepare_inputs_with_padding_check, trainer)
+
+    logger.warning("Applied comprehensive Qwen3 padding fixes for distributed training")
 
     base_repo = derive_base_repo(model_args)
 
