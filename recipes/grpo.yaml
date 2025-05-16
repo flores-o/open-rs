@@ -1,26 +1,27 @@
 # Model arguments
-model_name_or_path: Qwen/Qwen3-1.7B
+model_name_or_path: oanaflores/Qwen3-1.7B-completion-len-4k-step50
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
 
 # Data training arguments
 dataset_name: knoveleng/open-rs
-system_prompt: "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer, and put your final answer within \\boxed{{}} . The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. Note that respond by English, NOT use other languages."
+system_prompt: "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer, and put your final answer within \\boxed{{}} . The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. Note that you should respond in English, NOT use other languages."
 
 # GRPO trainer config
 bf16: true
 use_vllm: true
 vllm_device: "cuda:1"
 vllm_enforce_eager: true
-vllm_gpu_memory_utilization: 0.9
-vllm_max_model_len: 4096 # server-side limit
+vllm_gpu_memory_utilization: 0.7
+vllm_max_model_len: 8192 # server-side limit
 do_eval: false
-gradient_accumulation_steps: 4
+gradient_accumulation_steps: 6
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
-hub_model_id: Qwen3-1.7B
+  segment_size: 4
+hub_model_id: Qwen3-1.7B-completion-len-4k-step50
 hub_strategy: every_save
 learning_rate: 1.0e-06
 log_completions: false
@@ -32,14 +33,14 @@ lr_scheduler_type: cosine_with_min_lr
 lr_scheduler_kwargs:
   min_lr_rate: 0.1
 max_prompt_length: 512
-max_completion_length: 4096 # trainer trims or pads completions
+max_completion_length: 8192 # trainer trims or pads completions
 max_steps: 500
-num_generations: 6 # test
+num_generations: 4 # test
 num_train_epochs: 1
-output_dir: data/Qwen3-1.7B
+output_dir: data/Qwen3-1.7B-completion-len-4k-step50
 overwrite_output_dir: true
-per_device_eval_batch_size: 6 # go back to 6 test only
-per_device_train_batch_size: 6 # go back to 6 # test only
+per_device_eval_batch_size: 4 # go back to 6 test only
+per_device_train_batch_size: 4 # go back to 6 # test only
 push_to_hub: true
 report_to: wandb
 # -----------------------------------------------------------
@@ -56,7 +57,7 @@ dynamic_filter: true          # drop hopeless samples during RL
 save_strategy: "steps"
 save_total_limit: 1
 save_tensors: true
-save_steps: 50
+save_steps: 10
 seed: 42
 temperature: 0.7
 warmup_ratio: 0.1
