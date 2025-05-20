@@ -156,7 +156,7 @@ lighteval vllm "${MODEL_ARGS}" "custom|${TASK}|0|0" \
 
 ## 🤝 Acknowledgements
 
-This project is built on top of [OpenRS-Star](https://github.com/knoveleng/open-rs), with thanks to the authors for open-sourcing their work.
+This project is built on top of [OpenRS](https://github.com/knoveleng/open-rs), with thanks to the authors for open-sourcing their work.
 
 -----
 
