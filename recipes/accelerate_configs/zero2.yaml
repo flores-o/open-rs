@@ -1,20 +1,24 @@
+# ---------- Accelerate launch configuration ----------
 compute_environment: LOCAL_MACHINE
 distributed_type: DEEPSPEED
+
 deepspeed_config:
-  deepspeed_multinode_launcher: standard
-  offload_optimizer_device: none
-  offload_param_device: none
-  zero3_init_flag: false
-  zero3_save_16bit_model: false
-  zero_stage: 2
-# —— basic launcher plumbing ——
-num_processes: 1
+  zero_stage: 2                 # ZeRO-2 (weights stay on GPU, grads sharded)
+  offload_optimizer_device: none # Adam states live in CPU RAM
+  # offload_param_device is ignored in stage-2, so we omit it for clarity
+
+# ---------- basic launcher plumbing ----------
+num_processes: 1      # one rank ⇒ one GPU
+gpu_ids: "0, 1"
 num_machines: 1
-machine_rank: 0
+machine_rank: 0      # pin this process to GPU 0
+
 main_training_function: main
+mixed_precision: bf16  # keep BF16 everywhere
+
+# (house-keeping toggles)
 debug: false
 rdzv_backend: static
 same_network: true
 use_cpu: false
 downcast_bf16: "no"
-mixed_precision: bf16
