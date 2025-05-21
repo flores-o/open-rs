@@ -1,4 +1,4 @@
-# OpenRS-Star: Multi-Stage Fine-Tuning of Qwen3-1.7B for Mathematical Reasoning
+# OpenRS-Star: Multi-Stage RL-Tuning of Qwen3-1.7B for Mathematical Reasoning
 
 This repository extends the [OpenRS](https://github.com/knoveleng/open-rs), which explores reinforcement learning (RL) for enhancing reasoning in small LLMs under resource-constrained conditions.
 
