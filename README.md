@@ -4,6 +4,7 @@ This repository extends the [OpenRS](https://github.com/knoveleng/open-rs), whic
 
 We build upon the OpenRS foundation by training  [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) model using a two-stage curriculum and DAPO-style optimizations. We achieve 50% accuracy on AIME24 — state-of-the-art performance among small reasoning models — with a training budget of under $100.
 
+![Performance Metrics](assets/openrs-star-eval-plot.png)
 ---
 
 ## 🚀 Key Differences from OpenRS
@@ -40,7 +41,7 @@ This project uses two branches to reflect a multi-stage fine-tuning process:
    - 38 steps on 2x H200  
    - Continues training from stage 1 checkpoint
 
-> 📦 The resulting model achieves **50% accuracy on AIME24**, exceeding previous OpenRS runs — at a cost of less than **$100 total**.
+> 📦 The resulting model achieves **50% accuracy on AIME24**, exceeding previous OpenRS runs — at a cost of less than **$100**.
 
 ---
 
@@ -52,7 +53,7 @@ We applied several optimizations to improve training stability: Clip-Higher, Pur
 
 ## 📊 Results
 
-![Insert graph or table here showing AIME24 accuracy improvements, training cost, and stability]
+![Reasoning Benchmarks](assets/openrs-star-eval-table.png)
 
 ---
 
